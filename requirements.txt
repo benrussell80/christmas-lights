@@ -2,3 +2,4 @@ adafruit-circuitpython-ws2801==0.10.8
 aubio==0.4.9
 simpleaudio==1.0.4
 python-dotenv==0.19.2
+Flask==2.0.2

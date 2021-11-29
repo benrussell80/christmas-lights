@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Christmas Lights</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    {% with messages = get_flashed_messages(with_categories=True) %}
+    {% if messages %}
+    <ul id="flashes">
+        {% for category, message in messages %}
+        <li class="flash-{{ category }}">{{ message }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+    {% endwith %}
+    <h1>Christmas Songs</h1>
+    <form method="post">
+        <section id="songs">
+            {% for song in songs %}
+            <button class="song-btn" name="song-id" value="{{ song.id }}">{{ song.name }}</button>
+            {% endfor %}
+        </section>
+    </form>
+</body>
+</html>

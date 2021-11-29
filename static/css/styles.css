@@ -1,0 +1,50 @@
+* {
+    box-sizing: border-box;
+    padding: 0;
+    margin: 0;
+}
+
+body {
+    background: rgb(49, 49, 49);
+}
+
+.hidden {
+    display: none;
+}
+
+ul.flashes {
+    list-style: none;
+}
+
+.flash-info {
+    background: rgb(151, 255, 151);
+}
+
+.flash-error {
+    background: rgb(255, 151, 151);
+}
+
+.song-btn {
+    border-radius: 0;
+    border: 0px solid black;
+    width: 100%;
+    
+}
+
+#songs .song-btn:nth-child(2n+1) {
+    background: gray;
+}
+
+#songs .song-btn:nth-child(2n) {
+    background: white;
+}
+
+#songs { 
+    display: grid;
+    grid-template-columns: 1fr 10fr 1fr;
+    grid-auto-rows: minmax(100px, auto);
+}
+
+.song-btn {
+    grid-column: 2 / 3;
+}

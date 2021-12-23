@@ -4,7 +4,7 @@ import adafruit_ws2801
 
 CLOCK = board.D11
 DATA = board.D10
-NLEDS = 32
+NLEDS = 64
 
 def main():
     leds = adafruit_ws2801.WS2801(

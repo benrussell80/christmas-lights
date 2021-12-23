@@ -17,8 +17,14 @@
     </ul>
     {% endif %}
     {% endwith %}
-    <h1>Christmas Songs</h1>
+    <h1 id="title">Christmas Songs</h1>
     <form method="post">
+        <section id="controls">
+            <button class="control-btn" name="action" value="skip">Skip</button>
+            <button class="control-btn" name="action" value="stop">Stop</button>
+            <button class="control-btn" name="action" value="play">Play</button>
+        </section>
+
         <section id="songs">
             {% for song in songs %}
             <button class="song-btn" name="song-id" value="{{ song.id }}">{{ song.name }}</button>

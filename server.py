@@ -199,6 +199,17 @@ class SongQueue:
             self.start_event_async.set()
             self.stop_event_async.clear()
 
+    def off(self):
+        with adafruit_ws2801.WS2801(
+            clock=CLOCK,
+            data=DATA,
+            n=NLEDS,
+            brightness=1.0,
+            auto_write=False
+        ) as leds:
+            leds.fill((0, 0, 0))
+            leds.show()
+
     def loop(self):
         while self.start_event.wait():
             next_song = next(self)
@@ -245,6 +256,12 @@ def index() -> Response:
         elif action == 'play':
             song_queue.play()
             flash('Played song', 'info')
+        elif action == 'off':
+            if song_queue.start_event.is_set():
+                flash('Cannot turn lights off while song is playing', 'error')
+            else:
+                song_queue.off()
+                flash('Turned lights off', 'info')
         else:
             flash(f'Invalid action: {action}', 'error')
 

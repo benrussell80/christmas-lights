@@ -4,7 +4,6 @@ import json
 import os
 import random
 import threading
-import time
 from typing import Iterable, List, Optional, Tuple
 
 import adafruit_ws2801
@@ -89,6 +88,44 @@ def convert(rgb: Tuple[int, int, int]) -> Tuple[int, int, int]:
     return rgb[2], rgb[1], rgb[0]
 
 
+def hit(leds: adafruit_ws2801.WS2801, region: Iterable[int], color: Tuple[int, int, int]):
+    leds.fill((255, 255, 255))
+    for i in region:
+        leds[i] = color
+    leds.show()
+
+
+async def wait_then_hit(leds: adafruit_ws2801.WS2801, region: Iterable[int], color: Tuple[int, int, int], seconds: float):
+    try:
+        await asyncio.wait_for(song_queue.stop_event_async.wait(), seconds)
+    except asyncio.TimeoutError:
+        hit(leds, region, color)
+    else:
+        # event was set, do nothing
+        pass
+
+
+async def draw(onsets: List[float]):
+    with adafruit_ws2801.WS2801(
+        clock=CLOCK,
+        data=DATA,
+        n=NLEDS,
+        brightness=1.0,
+        auto_write=False
+    ) as leds:
+        await asyncio.gather(*[
+            wait_then_hit(leds, range(*random.choice(BLOCKS)), convert(COLORS[i % len(COLORS)]), onset)
+            for i, onset in enumerate(onsets)
+        ])
+
+
+def draw_sync(onsets: List[float], loop: asyncio.AbstractEventLoop):
+    try:
+        loop.run_until_complete(draw(onsets))
+    except:
+        pass
+
+
 # setup flask app
 assert load_dotenv(), 'Unable to load .env file'
 
@@ -106,120 +143,77 @@ class Song(TypedDict):
 
 class SongQueue:
     requests: List[Song]
-    requests_lock: threading.Lock
     queue: Iterable[Song]
+    play_obj: Optional[PlayObject]
+    lights: Optional[threading.Thread]
 
-    start_event: asyncio.Event
-    stop_event: asyncio.Event
-    stop_recognized: threading.Event
+    start_event: threading.Event
+    stop_event: threading.Event
+    event_lock: threading.Lock
+
+    start_event_async: asyncio.Event
+    stop_event_async: asyncio.Event
 
     def __init__(self):
         with open('songs.json') as fh:
             songs: List[Song] = json.load(fh)
         self.queue = itertools.cycle(songs)
         self.requests = []
-        self.requests_lock = threading.Lock()
-
+        self.play_obj = None
+        self.lights = None
+        self.start_event = threading.Event()
+        self.stop_event = threading.Event()
+        self.event_lock = threading.Lock()
         self.event_loop = asyncio.new_event_loop()
-        self.start_event = asyncio.Event(loop=self.event_loop)
-        self.stop_event = asyncio.Event(loop=self.event_loop)
-        self.stop_recognized = threading.Event()
+        self.start_event_async = asyncio.Event(loop=self.event_loop)
+        self.stop_event_async = asyncio.Event(loop=self.event_loop)
 
     def __iter__(self):
         return self
 
     def __next__(self) -> Song:
-        with self.requests_lock:
-            if len(self.requests) > 0:
-                return self.requests.pop(0)
-            else:
-                return next(self.queue)
+        if len(self.requests) > 0:
+            return self.requests.pop(0)
+        else:
+            return next(self.queue)
 
     def push(self, song: Song):
-        with self.requests_lock:
-            self.requests.append(song)
+        self.requests.append(song)
 
     def skip(self):
         self.stop()
         self.play()
 
     def stop(self):
-        self.stop_event.set()
-        self.start_event.clear()
-        self.stop_recognized.wait()
-        self.stop_recognized.clear()
+        with self.event_lock:
+            self.stop_event.set()
+            self.start_event.clear()
+            self.stop_event_async.set()
+            self.start_event_async.clear()
+            self.event_loop.stop()
 
     def play(self):
-        self.start_event.set()
-        self.stop_event.clear()
-
-    async def main(self):
-        while True:
-            await self.start_event.wait()
-            song = next(self)
-            await asyncio.gather(
-                self.play_song(song),
-                self.play_lights(song),
-                loop=self.event_loop
-            )
+        with self.event_lock:
+            self.start_event.set()
+            self.stop_event.clear()
+            self.start_event_async.set()
+            self.stop_event_async.clear()
 
     def loop(self):
-        self.event_loop.run_until_complete(self.main())
+        while self.start_event.wait():
+            next_song = next(self)
+            file_path = next_song['file']
+            onset_times = get_onset_times(file_path)
+            
+            music = simpleaudio.WaveObject.from_wave_file(file_path)
+            self.lights = threading.Thread(target=draw_sync, args=[onset_times, self.event_loop], daemon=True)
 
-    async def play_song(self, song: Song):
-        file_path = song['file']    
-        music = simpleaudio.WaveObject.from_wave_file(file_path)
-        play_obj = music.play()
-        try:
-            await asyncio.wait_for(self.stop_event_async.wait(), timeout=song_duration(file_path), loop=self.event_loop)
-        except asyncio.TimeoutError:
-            # song played out
-            play_obj.wait_done()
-        else:
-            # event was set, stop the song
-            play_obj.stop()
-            self.stop_recognized.set()
-
-    async def wait_then_hit(self, leds: adafruit_ws2801.WS2801, region: Iterable[int], color: Tuple[int, int, int], seconds: float):
-        try:
-            await asyncio.wait_for(self.stop_event_async.wait(), seconds)
-        except asyncio.TimeoutError:
-            self.hit(leds, region, color)
-        else:
-            # event was set, do nothing
-            pass
-
-    async def play_lights(self, song: Song):
-        file_path = song['file']
-        onsets = get_onset_times(file_path)
-
-        regions = [
-            range(*random.choice(BLOCKS))
-            for _ in onsets
-        ]
-        
-        colors = [
-            convert(COLORS[i % len(COLORS)])
-            for i, _ in enumerate(onsets)
-        ]
-        
-        with adafruit_ws2801.WS2801(
-            clock=CLOCK,
-            data=DATA,
-            n=NLEDS,
-            brightness=1.0,
-            auto_write=False
-        ) as leds:
-            await asyncio.gather(*[
-                self.wait_then_hit(leds, region, color, onset)
-                for region, color, onset in zip(regions, colors, onsets)
-            ])
-
-    async def hit(self, leds: adafruit_ws2801.WS2801, region: Iterable[int], color: Tuple[int, int, int]):
-        leds.fill((255, 255, 255))
-        for i in region:
-            leds[i] = color
-        leds.show()
+            self.play_obj = music.play()
+            self.lights.start()
+            if self.stop_event.wait(song_duration(file_path)):
+                self.play_obj.stop()
+            else:
+                self.play_obj.wait_done()
 
 
 song_queue = SongQueue()
@@ -233,10 +227,10 @@ def index() -> Response:
     if request.method == 'POST':
         action = request.form.get('action')
         if action is None:
-            song_id = request.form.get('song-id', default=None, type=int)
+            song_id = request.form.get('song-id')
             if song_id is not None:
                 for song in songs:
-                    if song['id'] == song_id:
+                    if song['id'] == int(song_id):
                         song_queue.push(song)
                         flash(f'Added {song["name"]} to queue.', 'info')
                         break
